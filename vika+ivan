@@ -1,0 +1,519 @@
+import pygame as pg
+import sys
+import os
+import random
+import math
+import webbrowser
+from pathlib import Path
+
+# ---------- ИНИЦИАЛИЗАЦИЯ ----------
+pg.init()
+FPS = 60
+name_game = 'Rain in the Fog'
+pg.display.set_caption(name_game)
+
+# ---------- ЦВЕТА ----------
+WHITE = (255, 255, 255)
+BLACK = (0, 0, 0)
+GRAY = (200, 200, 200)
+DARK_GRAY = (100, 100, 100)
+GOLD = (200, 150, 0)
+
+# Цвета для мира
+GROUND_COLOR = (50, 35, 20)
+ABYSS_COLOR = (25, 10, 45)
+TRUNK_COLOR = (60, 40, 20)
+TRUNK_LIGHT = (90, 65, 35)
+PINK = (255, 180, 200)
+LIGHT_PINK = (255, 210, 220)
+DARK_PINK = (230, 140, 170)
+BUTTON_COLOR = (120, 120, 120)
+BUTTON_HOVER = (160, 160, 160)
+
+# ---------- ПУТИ ----------
+BASE_PATH = Path().resolve()
+IMG_DIR = Path('/media/images/')
+SND_DIR = Path('/media/sounds/')
+
+# ---------- КЛАСС ЭКРАНА ----------
+class Screen():
+    def __init__(self):
+        self.info = pg.display.Info()
+        self.width = self.save_width = self.info.current_w
+        self.height = self.save_height = self.info.current_h
+        self.set_size(self.width, self.height)
+
+    def set_size(self, new_width, new_height):
+        self.width = new_width
+        self.height = new_height
+        self.surface = pg.display.set_mode((self.width, self.height))
+
+    def update(self, new_width, new_height):
+        self.set_size(new_width, new_height)
+
+screen = Screen()
+
+# ---------- ШРИФТЫ (Comic Sans MS) ----------
+try:
+    title_font = pg.font.SysFont("comicsansms", int(screen.width / 25))
+    item_font = pg.font.SysFont("comicsansms", int(screen.width / 35))
+    small_font = pg.font.SysFont("comicsansms", int(screen.width / 40))
+except:
+    title_font = pg.font.Font(None, int(screen.width / 18))
+    item_font = pg.font.Font(None, int(screen.width / 28))
+    small_font = pg.font.Font(None, int(screen.width / 40))
+
+# ---------- ПЕРЕМЕННЫЕ МЕНЮ ----------
+menu_items = ["Новая игра", "Параметры", "Помощь", "Авторы", "Выход"]
+link_url = "https://www.youtube.com/watch?v=dQw4w9WgXcQ"
+
+# Уменьшаем расстояние между пунктами и поднимаем меню выше
+MENU_SPACING = 15  # было 25
+item_height = item_font.get_height()
+total_height = len(menu_items) * (item_height + MENU_SPACING)
+start_y = (screen.height - total_height) // 4 + 20  # подняли выше
+
+# ---------- ДАННЫЕ АВТОРОВ ----------
+authors_data = [
+    {'name': 'Альфа-банк', 'role': 'Дизайнер', 'image': 'author3.png'},
+    {'name': 'Vikyye', 'role': 'Программист', 'image': 'brahbrah.png'},
+    {'name': 'Boss Paket', 'role': 'Сценарист/Художник', 'image': 'author4.png'},
+    {'name': 'Konyak_Konyakovich', 'role': 'Тестировщик/Сценарист/аниматор', 'image': 'author4.png'},
+    {'name': 'PonchikPonchik', 'role': 'программист/художник', 'image': 'vanya.png'}
+]
+
+# Загрузка аватар авторов (заглушки, если нет файлов)
+author_images = []
+for author in authors_data:
+    auth_dir = Path(f'{BASE_PATH}{IMG_DIR}/sprites/authors/{author["image"]}')
+    if os.path.exists(auth_dir):
+        img = pg.image.load(auth_dir)
+        img = pg.transform.scale(img, (80, 80))
+    else:
+        img = pg.Surface((80, 80))
+        img.fill(GRAY)
+    author_images.append(img)
+
+# ---------- ЗАГРУЗКА ФОНА ДЛЯ МЕНЮ ----------
+try:
+    bg_dir = Path(f'{BASE_PATH}{IMG_DIR}/backgrounds/')
+    backgrounds = [img for img in bg_dir.iterdir() if img.is_file()]
+    if backgrounds:
+        bg_img = pg.image.load(backgrounds[0])
+        background_og = pg.transform.scale(bg_img, (screen.width, screen.height))
+    else:
+        background_og = None
+except Exception as e:
+    print("Фон не загружен:", e)
+    background_og = None
+
+# ============================================================
+#                ИГРОВОЙ МИР
+# ============================================================
+
+# ---------- ПАРАМЕТРЫ МИРА ----------
+GROUND_OFFSET = 120
+Y_GROUND = screen.height // 1.5 + GROUND_OFFSET
+GROUND_HEIGHT = 60
+GRAVITY = 1
+WORLD_WIDTH = 10000
+
+# ---------- ИГРОК ----------
+class Player:
+    def __init__(self):
+        self.width = int(screen.width // 11)
+        self.height = int(screen.height // 4.5)
+        self.x = screen.width // 2 - self.width // 2
+        self.y = Y_GROUND - self.height
+        self.speed = 5
+        self.color = (180, 180, 180)
+        self.jump_power = -15
+        self.on_ground = True
+        self.y_velocity = 0
+        self.x_velocity = 0
+
+    def move(self, keys):
+        if keys[pg.K_LEFT] or keys[pg.K_a]:
+            self.x_velocity -= self.speed
+        if keys[pg.K_RIGHT] or keys[pg.K_d]:
+            self.x_velocity += self.speed
+        if (keys[pg.K_SPACE] or keys[pg.K_w]) and self.on_ground:
+            self.y_velocity = self.jump_power
+            self.on_ground = False
+        self.x_velocity *= 0.82
+        self.x += self.x_velocity
+        self.y += self.y_velocity
+        if not self.on_ground:
+            self.y_velocity += GRAVITY
+        self.check_ground()
+
+    def check_ground(self):
+        if self.y + self.height >= Y_GROUND:
+            self.y = Y_GROUND - self.height
+            self.y_velocity = 0
+            self.on_ground = True
+        else:
+            self.on_ground = False
+
+    def draw(self, surface, camera_x):
+        pg.draw.rect(surface, self.color, (self.x - camera_x, self.y, self.width, self.height))
+
+# ---------- ДЕРЕВО САКУРЫ ----------
+class SakuraTree:
+    def __init__(self, x, y, trunk_height=40, trunk_width=10, crown_radius=35):
+        self.x = x
+        self.y = y
+        self.trunk_height = trunk_height
+        self.trunk_width = trunk_width
+        self.crown_radius = crown_radius
+        self.branches = []
+        for _ in range(8):
+            angle = random.uniform(-60, 60)
+            length = random.uniform(0.3, 0.8) * crown_radius
+            bx = self.x + math.sin(math.radians(angle)) * self.trunk_width * 0.5
+            by = self.y - self.trunk_height * random.uniform(0.3, 0.8)
+            self.branches.append((angle, length, bx, by))
+
+    def get_rect(self):
+        left = self.x - self.crown_radius
+        top = self.y - self.trunk_height - self.crown_radius - 10
+        width = self.crown_radius * 2
+        height = self.trunk_height + self.crown_radius + 10
+        return pg.Rect(left, top, width, height)
+
+    def draw(self, surface, camera_x):
+        draw_x = self.x - camera_x
+        if draw_x > screen.width + 50 or draw_x < -50:
+            return
+        # Ствол
+        for i in range(self.trunk_height):
+            y_pos = self.y - i
+            w = int(self.trunk_width * (1 - (i / self.trunk_height) * 0.4))
+            color_val = 60 + (i / self.trunk_height) * 30
+            color = (int(color_val), int(color_val * 0.7), int(color_val * 0.4))
+            pg.draw.rect(surface, color, (draw_x - w//2, y_pos, w, 1))
+        # Ветки
+        for angle, length, bx, by in self.branches:
+            ex = bx + math.sin(math.radians(angle)) * length
+            ey = by - math.cos(math.radians(angle)) * length * 0.5
+            pg.draw.line(surface, TRUNK_LIGHT, (bx - camera_x, by), (ex - camera_x, ey), 2)
+        # Крона
+        cx, cy = draw_x, self.y - self.trunk_height - 10
+        pg.draw.circle(surface, PINK, (cx, cy), self.crown_radius)
+        offsets = [
+            (-self.crown_radius*0.6, -self.crown_radius*0.3, 0.7),
+            (self.crown_radius*0.6, -self.crown_radius*0.3, 0.7),
+            (-self.crown_radius*0.4, -self.crown_radius*0.7, 0.6),
+            (self.crown_radius*0.4, -self.crown_radius*0.7, 0.6),
+            (-self.crown_radius*0.7, -self.crown_radius*0.5, 0.5),
+            (self.crown_radius*0.7, -self.crown_radius*0.5, 0.5),
+            (0, -self.crown_radius*0.9, 0.5),
+        ]
+        for ox, oy, scale in offsets:
+            r = int(self.crown_radius * scale * 0.8)
+            pg.draw.circle(surface, LIGHT_PINK, (int(cx + ox), int(cy + oy)), r)
+        dark_offsets = [
+            (-self.crown_radius*0.3, -self.crown_radius*0.1, 0.4),
+            (self.crown_radius*0.3, -self.crown_radius*0.1, 0.4),
+            (-self.crown_radius*0.1, -self.crown_radius*0.5, 0.5),
+            (self.crown_radius*0.1, -self.crown_radius*0.5, 0.5),
+        ]
+        for ox, oy, scale in dark_offsets:
+            r = int(self.crown_radius * scale * 0.9)
+            pg.draw.circle(surface, DARK_PINK, (int(cx + ox), int(cy + oy)), r)
+        # Цветочки
+        for _ in range(30):
+            angle = random.uniform(0, 2 * math.pi)
+            dist = random.uniform(0.2, 1.0) * self.crown_radius
+            fx = cx + math.cos(angle) * dist
+            fy = cy + math.sin(angle) * dist * 0.8
+            size = random.randint(2, 5)
+            pg.draw.circle(surface, (255, 230, 240), (int(fx), int(fy)), size)
+
+# ---------- ЧАСТИЦЫ ----------
+class AshParticle:
+    def __init__(self, world_width):
+        self.x = random.randint(0, world_width)
+        self.y = random.randint(-100, screen.height)
+        self.size = random.randint(3, 8)
+        self.speed_y = random.uniform(0.5, 1.5)
+        self.speed_x = random.uniform(-0.3, 0.3)
+        self.color = (random.randint(40, 80), random.randint(40, 70), random.randint(40, 70))
+
+    def update(self):
+        self.x += self.speed_x
+        self.y += self.speed_y
+        if self.y > screen.height + 20:
+            self.y = -20
+            self.x = random.randint(0, WORLD_WIDTH)
+        if self.x < -20:
+            self.x = WORLD_WIDTH + 20
+        if self.x > WORLD_WIDTH + 20:
+            self.x = -20
+
+    def draw(self, surface, camera_x):
+        draw_x = self.x - camera_x
+        if -50 < draw_x < screen.width + 50:
+            pg.draw.circle(surface, self.color, (int(draw_x), int(self.y)), self.size)
+
+class FogParticle:
+    def __init__(self, world_width):
+        self.x = random.randint(0, world_width)
+        self.y = random.randint(0, screen.height)
+        self.radius = random.randint(60, 150)
+        self.speed_x = random.uniform(-0.1, 0.1)
+        self.speed_y = random.uniform(-0.05, 0.05)
+        self.alpha = random.randint(40, 100)
+        self.color = (30, 30, 35, self.alpha)
+
+    def update(self):
+        self.x += self.speed_x
+        self.y += self.speed_y
+        if self.x < -200:
+            self.x = WORLD_WIDTH + 200
+        if self.x > WORLD_WIDTH + 200:
+            self.x = -200
+        if self.y < -200:
+            self.y = screen.height + 200
+        if self.y > screen.height + 200:
+            self.y = -200
+
+    def draw(self, surface, camera_x):
+        draw_x = self.x - camera_x
+        if -200 < draw_x < screen.width + 200:
+            fog = pg.Surface((self.radius * 2, self.radius * 2), pg.SRCALPHA)
+            pg.draw.circle(fog, self.color, (self.radius, self.radius), self.radius)
+            surface.blit(fog, (draw_x - self.radius, self.y - self.radius))
+
+# ---------- ИНИЦИАЛИЗАЦИЯ ИГРОВОГО МИРА ----------
+player = Player()
+big_tree_size = max(player.width, player.height)
+big_tree = SakuraTree(
+    x=player.x + 400,
+    y=Y_GROUND,
+    trunk_height=int(big_tree_size * 0.8),
+    trunk_width=int(big_tree_size * 0.25),
+    crown_radius=int(big_tree_size * 1.1)
+)
+
+ash_particles = [AshParticle(WORLD_WIDTH) for _ in range(100)]
+fog_particles = [FogParticle(WORLD_WIDTH) for _ in range(40)]
+camera_x = 0
+show_e_button = False
+button_rect = None
+animation_active = False
+animation_start = 0
+ANIMATION_DURATION = 500
+
+# ---------- ФУНКЦИИ ОТРИСОВКИ МЕНЮ ----------
+def draw_text_centered(text, font, y, color=WHITE, shadow=True):
+    surf = font.render(text, True, color)
+    rect = surf.get_rect()
+    rect.centerx = screen.width // 2
+    rect.y = y
+    if shadow:
+        shadow_surf = font.render(text, True, (30, 30, 30))
+        shadow_rect = shadow_surf.get_rect()
+        shadow_rect.centerx = screen.width // 2 + 3
+        shadow_rect.y = y + 3
+        screen.surface.blit(shadow_surf, shadow_rect)
+    screen.surface.blit(surf, rect)
+
+def draw_e_button(surface, rect, hover=False, animating=False):
+    color = BUTTON_HOVER if hover else BUTTON_COLOR
+    if animating:
+        elapsed = pg.time.get_ticks() - animation_start
+        if elapsed < ANIMATION_DURATION:
+            progress = elapsed / ANIMATION_DURATION
+            scale = 1 + 0.15 * math.sin(progress * 2 * math.pi * 3)
+            center = rect.center
+            new_w = int(rect.width * scale)
+            new_h = int(rect.height * scale)
+            rect = pg.Rect(0, 0, new_w, new_h)
+            rect.center = center
+    pg.draw.rect(surface, color, rect, border_radius=10)
+    pg.draw.rect(surface, (80, 80, 80), rect, 2, border_radius=10)
+    font = pg.font.Font(None, 36)
+    text = font.render("E", True, WHITE)
+    text_rect = text.get_rect(center=rect.center)
+    surface.blit(text, text_rect)
+
+# ---------- ОТРИСОВКА ЭКРАНОВ ----------
+def draw_menu():
+    screen.surface.fill(BLACK)
+    if background_og:
+        screen.surface.blit(background_og, (0, 0))
+
+    draw_text_centered(name_game, title_font, 60, DARK_GRAY, shadow=True)
+
+    mouse_x, mouse_y = pg.mouse.get_pos()
+    for i, item in enumerate(menu_items):
+        y = start_y + i * (item_height + MENU_SPACING)   # уменьшенный отступ
+        click_rect = pg.Rect(screen.width // 2 - 150, y, 300, item_height)
+        color = WHITE if click_rect.collidepoint(mouse_x, mouse_y) else DARK_GRAY
+        draw_text_centered(item, item_font, y, color, shadow=True)
+
+def draw_authors():
+    screen.surface.fill(BLACK)
+    draw_text_centered("АВТОРЫ", title_font, 60, WHITE)
+
+    start_y = 130
+    spacing = 100
+    for i, author in enumerate(authors_data):
+        y = start_y + i * spacing
+        img = author_images[i]
+        img_rect = img.get_rect(topleft=(150, y - 40))
+        screen.surface.blit(img, img_rect)
+        name_surf = item_font.render(author['name'], True, WHITE)
+        name_rect = name_surf.get_rect(midleft=(260, y - 10))
+        screen.surface.blit(name_surf, name_rect)
+        role_surf = small_font.render(author['role'], True, GRAY)
+        role_rect = role_surf.get_rect(midleft=(260, y + 20))
+        screen.surface.blit(role_surf, role_rect)
+
+    pg.draw.rect(screen.surface, WHITE, (screen.width // 2 - 60, screen.height - 60, 120, 40), 2)
+    draw_text_centered("Назад", item_font, screen.height - 40, WHITE)
+
+def draw_game():
+    global camera_x, show_e_button, button_rect, animation_active
+
+    for ash in ash_particles:
+        ash.update()
+    for fog in fog_particles:
+        fog.update()
+
+    target_cam = player.x - screen.width // 2 + player.width // 2
+    camera_x += (target_cam - camera_x) * 0.1
+    camera_x = max(0, min(camera_x, WORLD_WIDTH - screen.width))
+
+    # Фон
+    for i in range(screen.height):
+        t = i / screen.height
+        r = int(10 + t * 10)
+        g = int(10 + t * 15)
+        b = int(30 + t * 40)
+        pg.draw.line(screen.surface, (r, g, b), (0, i), (screen.width, i))
+
+    for fog in fog_particles:
+        fog.draw(screen.surface, camera_x)
+
+    pg.draw.rect(screen.surface, ABYSS_COLOR, (0 - camera_x, Y_GROUND + GROUND_HEIGHT, WORLD_WIDTH, screen.height - (Y_GROUND + GROUND_HEIGHT)))
+    pg.draw.rect(screen.surface, GROUND_COLOR, (0 - camera_x, Y_GROUND, WORLD_WIDTH, GROUND_HEIGHT))
+
+    big_tree.draw(screen.surface, camera_x)
+
+    for ash in ash_particles:
+        ash.draw(screen.surface, camera_x)
+
+    player.draw(screen.surface, camera_x)
+
+    if show_e_button:
+        tree_center_world_x = big_tree.x
+        tree_top_world_y = big_tree.y - big_tree.trunk_height - big_tree.crown_radius - 10
+        btn_x_world = tree_center_world_x - 30
+        btn_y_world = tree_top_world_y - 20
+        btn_x_screen = btn_x_world - camera_x
+        btn_y_screen = btn_y_world
+        button_rect = pg.Rect(btn_x_screen, btn_y_screen, 60, 40)
+
+        mouse_x, mouse_y = pg.mouse.get_pos()
+        hover = button_rect.collidepoint(mouse_x, mouse_y)
+        draw_e_button(screen.surface, button_rect, hover, animation_active)
+
+# ---------- ОСНОВНОЙ ЦИКЛ ----------
+def main():
+    global state, animation_active, animation_start, player, camera_x, show_e_button
+
+    clock = pg.time.Clock()
+    running = True
+    state = 'MENU'
+    fullscreen = True
+
+    while running:
+        for event in pg.event.get():
+            if event.type == pg.QUIT:
+                running = False
+
+            if event.type == pg.KEYDOWN:
+                if event.key == pg.K_ESCAPE:
+                    if state == 'GAME':
+                        state = 'MENU'
+                    else:
+                        running = False
+                if event.key == pg.K_e and state == 'GAME' and show_e_button and not animation_active:
+                    animation_active = True
+                    animation_start = pg.time.get_ticks()
+                if event.key == pg.K_F4:
+                    fullscreen = not fullscreen
+                    if fullscreen:
+                        screen.update(screen.save_width, screen.save_height)
+                    else:
+                        new_w = int(screen.width // 1.75)
+                        new_h = int(screen.height // 1.75)
+                        screen.update(new_w, new_h)
+                    if background_og:
+                        bg_scaled = pg.transform.scale(background_og, (screen.width, screen.height))
+
+            if event.type == pg.MOUSEBUTTONDOWN and event.button == 1:
+                mx, my = event.pos
+                if state == 'MENU':
+                    for i, item in enumerate(menu_items):
+                        y = start_y + i * (item_height + MENU_SPACING)
+                        rect = pg.Rect(screen.width // 2 - 150, y, 300, item_height)
+                        if rect.collidepoint(mx, my):
+                            if item == "Авторы":
+                                state = 'AUTHORS'
+                            elif item == "Новая игра":
+                                state = 'GAME'
+                                player.x = screen.width // 2 - player.width // 2
+                                player.y = Y_GROUND - player.height
+                                player.y_velocity = 0
+                                player.x_velocity = 0
+                                player.on_ground = True
+                                camera_x = 0
+                            elif item == "Помощь":
+                                webbrowser.open(link_url)
+                            elif item == "Выход":
+                                running = False
+                elif state == 'AUTHORS':
+                    back_rect = pg.Rect(screen.width // 2 - 60, screen.height - 60, 120, 40)
+                    if back_rect.collidepoint(mx, my):
+                        state = 'MENU'
+                elif state == 'GAME':
+                    if show_e_button and button_rect is not None:
+                        if button_rect.collidepoint(mx, my) and not animation_active:
+                            animation_active = True
+                            animation_start = pg.time.get_ticks()
+
+        # Логика игры
+        if state == 'GAME':
+            keys = pg.key.get_pressed()
+            player.move(keys)
+            if player.x < 0:
+                player.x = 0
+            if player.x + player.width > WORLD_WIDTH:
+                player.x = WORLD_WIDTH - player.width
+
+            player_rect = pg.Rect(player.x, player.y, player.width, player.height)
+            tree_rect = big_tree.get_rect()
+            show_e_button = player_rect.colliderect(tree_rect)
+
+            if animation_active and pg.time.get_ticks() - animation_start > ANIMATION_DURATION:
+                animation_active = False
+
+        # Отрисовка
+        if state == 'MENU':
+            draw_menu()
+        elif state == 'AUTHORS':
+            draw_authors()
+        elif state == 'GAME':
+            draw_game()
+
+        pg.display.flip()
+        clock.tick(FPS)
+
+    pg.quit()
+    sys.exit()
+
+if __name__ == "__main__":
+    main()
